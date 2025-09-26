@@ -45,7 +45,8 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array())
 
     currentWalletState.masterPrivateSpendKey = masterPrivateSpendKey;
     currentWalletState.stealthMetaAddress = stealthMetaAddress;
-    
+
+    // for testing
     const privateKey = generateStealthPrivateKey(R);
 
     console.log();
@@ -56,4 +57,21 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array())
             success: true,
             currentWalletState: currentWalletState
         }
+}
+
+export const generateStealthPrivateKey = (RSelf) => {
+    const aR = RSelf.multiply(BigInt("0x" + toHex(keccak256(hexToBytes(currentWalletState.masterPrivateSpendKey)))));
+    const f = mod(BigInt("0x" + toHex(keccak256(aR.toRawBytes(false).slice(1)))), n);
+    const stealthPrivateKey = mod(f + BigInt(currentWalletState.masterPrivateSpendKey), n);
+
+    return stealthPrivateKey;
+}
+
+export const getStealthMetaAddress = async() => {
+    console.log(currentWalletState.stealthMetaAddress);
+    return currentWalletState.stealthMetaAddress;
+}
+
+export const importStealthWallet = async(masterPrivateSpendKey) => {
+    await generateNewWallet(masterPrivateSpendKey);
 }
