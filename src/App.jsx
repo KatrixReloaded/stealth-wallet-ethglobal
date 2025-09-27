@@ -1,28 +1,60 @@
 import { useState, useEffect } from "react";
-import { WalletProvider, useWallet } from "./WalletContext";
+import { WalletProvider, useWallet } from "./context/WalletContext";
+import { WatcherService } from "../watcher/watcher";
+import { encryptPrivateKey, decryptPrivateKey } from "../utils/encryption";
+import { keccak256 } from "ethereum-cryptography/keccak";
+import { toHex } from "ethereum-cryptography/utils";
 
 function WalletApp() {
   const [page, setPage] = useState("setup");
   const [open, setOpen] = useState(null);
-  const { wallet, initializeWallet, generateStealthAddress, sendToStealthAddress } = useWallet();
+  const [rpcUrl, setRpcUrl] = useState(localStorage.getItem('rpcUrl'));
+  const [password, setPassword] = useState("");
+  const [walletAction, setWalletAction] = useState(null);
+  const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddress } = useWallet();
+
+  // Helper function to hash password
+  const hashPassword = (password) => {
+    const passwordBytes = new TextEncoder().encode(password);
+    return toHex(keccak256(passwordBytes));
+  };
 
   useEffect(() => {
     const loadWallet = async () => {
-      const storedKey = localStorage.getItem("masterPrivateSpendKey");
+      const encryptedMasterKey = localStorage.getItem("encryptedMasterPrivateSpendKey");
+      const encryptedCurrentKey = localStorage.getItem("encryptedCurrentPrivKey");
       const storedMetaAddress = localStorage.getItem("stealthMetaAddress");
-
-      if (storedKey && storedMetaAddress) {
-        await initializeWallet(storedKey);
-        setPage("wallet");
+      const passwordHash = localStorage.getItem("passwordHash");
+      
+      if (encryptedMasterKey && storedMetaAddress && passwordHash) {
+        setPage("login");
       }
     };
     loadWallet();
   }, []);
 
+  useEffect(() => {
+    if(!rpcUrl) return;
+    const watcherService = new WatcherService(rpcUrl);
+    const watcherInterval = setInterval(() => watcherService.fetchEvents(), 12_000);
+    return () => {clearInterval(watcherInterval)};
+  }, []);
+
   const generateNewWallet = async () => {
     const wallet = await initializeWallet();
-    localStorage.setItem("masterPrivateSpendKey", wallet.masterPrivateSpendKey);
+    
+    // Encrypt and store keys
+    const encryptedMasterKey = encryptPrivateKey(wallet.masterPrivateSpendKey, password);
+    const encryptedCurrentKey = encryptPrivateKey(wallet.currentAddr.privKey, password);
+    
+    // Store password hash
+    const passwordHashValue = hashPassword(password);
+    
+    localStorage.setItem("encryptedMasterPrivateSpendKey", JSON.stringify(encryptedMasterKey));
+    localStorage.setItem("encryptedCurrentPrivKey", JSON.stringify(encryptedCurrentKey));
     localStorage.setItem("stealthMetaAddress", wallet.stealthMetaAddress);
+    localStorage.setItem("stealthAddress", wallet.currentAddr.address);
+    localStorage.setItem("passwordHash", passwordHashValue);
     setPage("wallet");
   };
 
@@ -30,9 +62,55 @@ function WalletApp() {
     const key = prompt("Enter master private spend key:");
     if (key) {
       const wallet = await initializeWallet(key);
-      localStorage.setItem("masterPrivateSpendKey", wallet.masterPrivateSpendKey);
+      
+      // Encrypt and store keys
+      const encryptedMasterKey = encryptPrivateKey(wallet.masterPrivateSpendKey, password);
+      const encryptedCurrentKey = encryptPrivateKey(wallet.currentAddr.privKey, password);
+      
+      // Store password hash
+      const passwordHashValue = hashPassword(password);
+      
+      localStorage.setItem("encryptedMasterPrivateSpendKey", JSON.stringify(encryptedMasterKey));
+      localStorage.setItem("encryptedCurrentPrivKey", JSON.stringify(encryptedCurrentKey));
       localStorage.setItem("stealthMetaAddress", wallet.stealthMetaAddress);
+      localStorage.setItem("stealthAddress", wallet.currentAddr.address);
+      localStorage.setItem("passwordHash", passwordHashValue);
       setPage("wallet");
+    }
+  };
+
+  const handlePasswordSubmit = () => {
+    if (password.length < 8) {
+      alert("Password must be at least 8 characters long");
+      return;
+    }
+    setPage("walletAction");
+  };
+
+  const handleLogin = async () => {
+    try {
+      // Verify password hash first
+      const storedPasswordHash = localStorage.getItem("passwordHash");
+      const enteredPasswordHash = hashPassword(password);
+      
+      if (storedPasswordHash !== enteredPasswordHash) {
+        alert("Incorrect password. Please try again.");
+        setPassword(""); // Clear password field
+        return;
+      }
+      
+      const encryptedMasterKey = JSON.parse(localStorage.getItem("encryptedMasterPrivateSpendKey"));
+      const encryptedCurrentKey = JSON.parse(localStorage.getItem("encryptedCurrentPrivKey"));
+      
+      // Decrypt the master private key
+      const decryptedMasterKey = decryptPrivateKey(encryptedMasterKey, password);
+      
+      // Initialize wallet with decrypted key
+      await initializeWallet(decryptedMasterKey);
+      setPage("wallet");
+    } catch (error) {
+      alert("Invalid password or corrupted wallet data");
+      console.error("Login error:", error);
     }
   };
 
@@ -51,36 +129,97 @@ function WalletApp() {
 
   const handleReceive = async () => {
     try {
-      const { stealthAddress } = await generateStealthAddress(wallet.stealthMetaAddress);
+      const { stealthAddress } = await generateReceiverStealthAddress(wallet.stealthMetaAddress);
       return stealthAddress;
     } catch (error) {
       console.error("Failed to generate stealth address:", error);
     }
   };
 
-  // ----------------- Page 1 -----------------
+  // ----------------- Page 1: Password Setup -----------------
   if (page === "setup") {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-900 text-white px-[10%] text-center w-full">
         <div className="flex flex-col space-y-6 w-full max-w-md text-center mx-auto justify-center items-center">
+          <h2 className="text-2xl font-bold mb-4">Set Wallet Password</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Enter a password to encrypt your wallet keys. This password will be required to access your wallet.
+          </p>
+          <input
+            type="password"
+            placeholder="Enter password (min 8 characters)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
           <button
-            className="px-6 py-3 bg-blue-600 rounded-lg shadow hover:bg-blue-700 transition-colors w-full text-center"
-            onClick={generateNewWallet}
+            className="px-6 py-3 bg-purple-600 rounded-lg shadow hover:bg-purple-700 transition-colors w-full"
+            onClick={handlePasswordSubmit}
           >
-            Generate Wallet
-          </button>
-          <button
-            className="px-6 py-3 bg-green-600 rounded-lg shadow hover:bg-green-700 transition-colors w-full text-center"
-            onClick={importWallet}
-          >
-            Import Wallet
+            Continue
           </button>
         </div>
       </div>
     );
   }
 
-  // ----------------- Page 2 -----------------
+  // ----------------- Page 2: Wallet Action Selection -----------------
+  if (page === "walletAction") {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-900 text-white px-[10%] text-center w-full">
+        <div className="flex flex-col space-y-6 w-full max-w-md text-center mx-auto justify-center items-center">
+          <button
+            className="px-6 py-3 bg-blue-600 rounded-lg shadow hover:bg-blue-700 transition-colors w-full justify-center items-center text-center"
+            onClick={generateNewWallet}
+          >
+            Generate New Wallet
+          </button>
+          <button
+            className="px-6 py-3 bg-green-600 rounded-lg shadow hover:bg-green-700 transition-colors w-full justify-center items-center text-center"
+            onClick={importWallet}
+          >
+            Import Existing Wallet
+          </button>
+          <button
+            className="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors w-full text-sm"
+            onClick={() => setPage("setup")}
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------- Page 3: Login -----------------
+  if (page === "login") {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-900 text-white px-[10%] text-center w-full">
+        <div className="flex flex-col space-y-6 w-full max-w-md text-center mx-auto justify-center items-center">
+          <h2 className="text-2xl font-bold mb-4">Enter Wallet Password</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Enter your password to decrypt and access your wallet.
+          </p>
+          <input
+            type="password"
+            placeholder="Enter wallet password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onClick={(e) => e.key === 'Enter' && handleLogin()}
+          />
+          <button
+            className="px-6 py-3 bg-blue-600 rounded-lg shadow hover:bg-blue-700 transition-colors w-full"
+            onClick={handleLogin}
+          >
+            Unlock Wallet
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------- Page 4: Main Wallet Interface -----------------
   return (
     <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white px-[10%]">
       <div className="w-full max-w-2xl mx-auto text-center">
@@ -90,6 +229,34 @@ function WalletApp() {
         <p className="mb-8 bg-gray-800 p-4 rounded-lg text-gray-300 text-xs break-all whitespace-normal text-center">
           {wallet.stealthMetaAddress}
         </p>
+
+        {/* RPC URL Configuration Section - Only show if no RPC URL is stored */}
+        {!rpcUrl && (
+          <div className="mb-8 p-4 bg-gray-800 rounded-lg">
+            <h3 className="text-lg font-semibold mb-3">RPC Configuration</h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Enter RPC URL (e.g., http://localhost:8545)"
+                className="w-full px-4 py-2 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                id="rpcUrlInput"
+              />
+              <button
+                className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                onClick={() => {
+                  const input = document.getElementById('rpcUrlInput');
+                  if (input.value) {
+                    localStorage.setItem('rpcUrl', input.value);
+                    setRpcUrl(input.value);
+                    window.location.reload();
+                  }
+                }}
+              >
+                Save RPC URL
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex justify-center space-x-6">
           <button
