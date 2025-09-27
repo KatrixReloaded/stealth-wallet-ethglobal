@@ -15,7 +15,7 @@ export const WalletProvider = ({ children }) => {
     });
 
     const initializeWallet = async (existingKey) => {
-        const wallet = await generateNewWallet(existingKey);
+        const wallet = (await generateNewWallet(existingKey)).currentWalletState;
         setWalletState(prev => ({
         ...prev,
         ...wallet

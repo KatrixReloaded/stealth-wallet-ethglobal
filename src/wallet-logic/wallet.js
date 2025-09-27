@@ -65,9 +65,9 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array())
     console.log();
 
     return {
-            success: true,
-            currentWalletState: currentWalletState
-        }
+        success: true,
+        currentWalletState: currentWalletState
+    }
 }
 
 export const generateReceiverStealthAddress = async(receiverMetaAddress, r = new Uint8Array()) => {

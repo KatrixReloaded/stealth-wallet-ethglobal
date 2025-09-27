@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { WalletProvider, useWallet } from "./context/WalletContext";
-import { WatcherService } from "../watcher/watcher";
-import { encryptPrivateKey, decryptPrivateKey } from "../utils/encryption";
+import { WalletProvider, useWallet } from "./WalletContext";
+import { WatcherService } from "./watcher/watcher";
+import { encryptPrivateKey, decryptPrivateKey } from "./utils/encryption";
 import { keccak256 } from "ethereum-cryptography/keccak";
 import { toHex } from "ethereum-cryptography/utils";
 
