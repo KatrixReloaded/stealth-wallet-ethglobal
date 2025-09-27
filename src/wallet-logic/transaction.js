@@ -3,15 +3,13 @@ import { ethers, toBeHex } from "ethers";
 import { secp256k1 } from "ethereum-cryptography/secp256k1.js";
 import { toHex } from "ethereum-cryptography/utils.js";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
-
-// Get RPC URL from localStorage, fallback to Sepolia if not set
-const getRpcUrl = () => {
-    return localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com";
-};
+import { announcerAbi } from "../utils/abi.js";
 
 const getProvider = () => {
-    return new ethers.JsonRpcProvider(getRpcUrl());
+    return new ethers.JsonRpcProvider(localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com");
 };
+
+const announcerAddress = "0x55649E01B5Df198D18D95b5cc5051630cfD45564";
 
 export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     console.log(currentWalletState);
@@ -21,16 +19,28 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     const {stealthAddress: selfStealthAddress, R: RSelf} = await generateReceiverStealthAddress(currentWalletState.stealthMetaAddress); // transfer remaining funds to new address, UTXO-inspired
     console.log("Self meta-address: ", currentWalletState.stealthMetaAddress);
     console.log({ RSelf, selfStealthAddress});
-    const stealthPrivateKey = generateStealthPrivateKey(RSelf);
+    const stealthPrivateKey = toBeHex(generateStealthPrivateKey(RSelf));
 
     console.log(toHex(keccak256(secp256k1.ProjectivePoint.BASE.multiply(stealthPrivateKey).toRawBytes(false).slice(1)).slice(-20)));
 
+    const provider = getProvider();
+    console.log("Amount: ", amount);
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
 
     const tx = await wallet.sendTransaction({
         to: receiverStealthAddress,
         value: ethers.parseEther(amount)
     });
+
+    const announcerContract = new ethers.Contract(announcerAddress, announcerAbi, provider);
+    const connectedContract = announcerContract.connect(wallet);
+    
+    const announcementTx = await connectedContract.announce(
+        1, // schemeId (typically 1 for secp256k1)
+        receiverStealthAddress,
+        "0x" + toHex(R.toRawBytes(false)), // ephemeralPubKey as bytes
+        "0x"
+    );
 
     const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
 
@@ -39,21 +49,32 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
         value: selfTxValue
     });
 
-    console.log("Transaction hash:", tx.hash, "\n", txSelf.hash);
+    console.log("Transaction hash:", tx.hash);
+    console.log("Announcement hash:", announcementTx.hash);
+    console.log("Self transaction hash:", txSelf.hash);
+    
     const receipt = await tx.wait();
+    const announcementReceipt = await announcementTx.wait();
     const receiptSelf = await txSelf.wait();
-    console.log("Confirmed in block:", receipt.blockNumber);
-    console.log("Confirmed in block:", receiptSelf.blockNumber);
+    
+    console.log("Payment confirmed in block:", receipt.blockNumber);
+    console.log("Announcement confirmed in block:", announcementReceipt.blockNumber);
+    console.log("Self transfer confirmed in block:", receiptSelf.blockNumber);
 
     currentWalletState.currentAddr = {
         address: selfStealthAddress,
         privKey: toBeHex(stealthPrivateKey, 32)
     };
+
+    return {
+        success: true,
+        currentWalletState: currentWalletState
+    }
 }
 
 export const sendToNormalAddress = async(receiverAddress, amount) => {
     const {selfStealthAddress, RSelf} = generateReceiverStealthAddress(currentWalletState.stealthMetaAddress);
-    const stealthPrivateKey = generateStealthPrivateKey(RSelf);
+    const stealthPrivateKey = toBeHex(generateStealthPrivateKey(RSelf));
 
     const provider = getProvider();
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
@@ -85,7 +106,7 @@ export const sendToNormalAddress = async(receiverAddress, amount) => {
 
 export const receiveFromNormalWallet = async() => {
     const {stealthAddress: selfStealthAddress, R: RSelf} = generateReceiverStealthAddress(stealthMetaAddress);
-    const stealthPrivateKey = generateStealthPrivateKey(RSelf);
+    const stealthPrivateKey = toBeHex(generateStealthPrivateKey(RSelf));
     
     const provider = getProvider();
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
@@ -107,7 +128,7 @@ export const receiveFromNormalWallet = async() => {
 }
 
 export const receiveFromStealthWallet = async(R) => {
-    const stealthPrivateKey = generateStealthPrivateKey(R);
+    const stealthPrivateKey = toBeHex(generateStealthPrivateKey(R));
 
     const provider = getProvider();
     const stealthAddress = new ethers.Wallet(stealthPrivateKey, provider).address;
@@ -132,15 +153,20 @@ export const getSelfTxValue = async(wallet, receiverAddress) => {
     const provider = getProvider();
     const remainingBalance = await provider.getBalance(currentWalletState.currentAddr.address);
 
-    const gasLimit = wallet.estimateGas({
-        to: receiverAddress,
-        value: 0
-    });
+    const gasLimit = 21000n;
 
     const feeData = await provider.getFeeData();
-    const gasPrice = feeData.gasPrice ?? ethers.parseEther('1', 'gwei');
-
+    
+    const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || ethers.parseUnits('1', 'gwei');
+    
     const gasCost = gasLimit * gasPrice;
 
-    return remainingBalance - gasCost;
+    const transferValue = remainingBalance - gasCost;
+
+    // Ensure we don't send negative value
+    if (transferValue <= 0n) {
+        throw new Error(`Insufficient funds: balance ${ethers.formatEther(remainingBalance)} ETH, gas cost ${ethers.formatEther(gasCost)} ETH`);
+    }
+
+    return transferValue;
 }

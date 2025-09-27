@@ -4,6 +4,7 @@ import { getRandomBytes } from "ethereum-cryptography/random.js";
 import { toHex, hexToBytes } from "ethereum-cryptography/utils.js";
 import { mod } from "@noble/curves/abstract/modular.js";
 import { toBeHex, toBeArray } from "ethers";
+import { decryptPrivateKey } from "../utils/encryption";
 
 // order of the curve secp256k1
 const n = BigInt(secp256k1.CURVE.n);
@@ -17,7 +18,7 @@ export let currentWalletState = {
     }
 };
 
-export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array()) => {
+export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array(), password = null) => {
     // private spend key = b
     if(masterPrivateSpendKey.length == 0) {
         masterPrivateSpendKey = await getRandomBytes(32);
@@ -50,15 +51,22 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array())
 
     let stealthMetaAddress = "st:eth:0x"+masterPublicViewKey+masterPublicSpendKey;
 
-    const {stealthAddress, R} = await generateReceiverStealthAddress(stealthMetaAddress);
     currentWalletState.masterPrivateSpendKey = masterPrivateSpendKey;
     currentWalletState.stealthMetaAddress = stealthMetaAddress;
     
-    const privateKey = generateStealthPrivateKey(R);
-    currentWalletState.currentAddr = {
-        address: stealthAddress,
-        privKey: toBeHex(privateKey, 32)
-    };
+    // @note only if new meta-address is generated
+    if(localStorage.getItem("stealthAddress") === "") {
+        const {stealthAddress, R} = await generateReceiverStealthAddress(stealthMetaAddress);
+        const privateKey = generateStealthPrivateKey(R);
+        currentWalletState.currentAddr = {
+            address: stealthAddress,
+            privKey: toBeHex(privateKey, 32)
+        };
+    } else {
+        const encryptedCurrentKey = JSON.parse(localStorage.getItem("encryptedCurrentPrivKey"));
+        currentWalletState.currentAddr.privKey = decryptPrivateKey(encryptedCurrentKey, password);
+        currentWalletState.currentAddr.address = localStorage.getItem("stealthAddress");
+    }
 
     console.log();
     console.log("Stealth Meta-address: ", stealthMetaAddress);
@@ -113,7 +121,7 @@ export const generateReceiverStealthAddress = async(receiverMetaAddress, r = new
 export const generateStealthPrivateKey = (RSelf) => {
     const aR = RSelf.multiply(BigInt("0x" + toHex(keccak256(hexToBytes(currentWalletState.masterPrivateSpendKey)))));
     const f = mod(BigInt("0x" + toHex(keccak256(aR.toRawBytes(false).slice(1)))), n);
-    const stealthPrivateKey = mod(f + BigInt(currentWalletState.masterPrivateSpendKey), n);
+    const stealthPrivateKey = mod((f + BigInt(currentWalletState.masterPrivateSpendKey)), n);
 
     return stealthPrivateKey;
 }
@@ -123,6 +131,6 @@ export const getStealthMetaAddress = async() => {
     return currentWalletState.stealthMetaAddress;
 }
 
-export const importStealthWallet = async(masterPrivateSpendKey) => {
-    await generateNewWallet(masterPrivateSpendKey);
+export const importStealthWallet = async(masterPrivateSpendKey, password = null) => {
+    await generateNewWallet(masterPrivateSpendKey, password);
 }
