@@ -59,15 +59,13 @@ export class WatcherService {
             }
         }
 
-        // @note need to see how to encrypt the new value with password and store it
-
-        if (this.updateCurrentAddrFn) {
-            this.updateCurrentAddrFn(latestPrivKey, new ethers.Wallet(latestPrivKey).address);
-        }
-
         if (logs.length) {
             console.log("New logs:", logs);
             latestPrivKey = await stealthPrivKeyLatest();
+        }
+
+        if (latestPrivKey) {
+            this.updateCurrentAddrFn(latestPrivKey, new ethers.Wallet(latestPrivKey).address);
         }
 
         this.lastScannedBlock = latestBlock + 1;

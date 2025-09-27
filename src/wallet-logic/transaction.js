@@ -4,7 +4,14 @@ import { secp256k1 } from "ethereum-cryptography/secp256k1.js";
 import { toHex } from "ethereum-cryptography/utils.js";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
-const provider = new ethers.JsonRpcProvider("https://ethereum-sepolia-rpc.publicnode.com");
+// Get RPC URL from localStorage, fallback to Sepolia if not set
+const getRpcUrl = () => {
+    return localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com";
+};
+
+const getProvider = () => {
+    return new ethers.JsonRpcProvider(getRpcUrl());
+};
 
 export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     console.log(currentWalletState);
@@ -48,6 +55,7 @@ export const sendToNormalAddress = async(receiverAddress, amount) => {
     const {selfStealthAddress, RSelf} = generateReceiverStealthAddress(currentWalletState.stealthMetaAddress);
     const stealthPrivateKey = generateStealthPrivateKey(RSelf);
 
+    const provider = getProvider();
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
     const tx = await wallet.sendTransaction({
         to: receiverAddress,
@@ -79,6 +87,7 @@ export const receiveFromNormalWallet = async() => {
     const {stealthAddress: selfStealthAddress, R: RSelf} = generateReceiverStealthAddress(stealthMetaAddress);
     const stealthPrivateKey = generateStealthPrivateKey(RSelf);
     
+    const provider = getProvider();
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
     const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
 
@@ -100,6 +109,7 @@ export const receiveFromNormalWallet = async() => {
 export const receiveFromStealthWallet = async(R) => {
     const stealthPrivateKey = generateStealthPrivateKey(R);
 
+    const provider = getProvider();
     const stealthAddress = new ethers.Wallet(stealthPrivateKey, provider).address;
 
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
@@ -119,6 +129,7 @@ export const receiveFromStealthWallet = async(R) => {
 }
 
 export const getSelfTxValue = async(wallet, receiverAddress) => {
+    const provider = getProvider();
     const remainingBalance = await provider.getBalance(currentWalletState.currentAddr.address);
 
     const gasLimit = wallet.estimateGas({
