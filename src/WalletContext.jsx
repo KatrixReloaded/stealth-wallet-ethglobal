@@ -1,6 +1,8 @@
 import { createContext, useContext, useState } from 'react';
 import { generateNewWallet, generateReceiverStealthAddress } from './wallet-logic/wallet.js';
 import { sendToStealthAddress } from './wallet-logic/transaction.js';
+import { encryptPrivateKey } from './utils/encryption.js';
+import { toBeHex } from 'ethers';
 
 const WalletContext = createContext(null);
 
@@ -23,11 +25,37 @@ export const WalletProvider = ({ children }) => {
         return wallet;
     };
 
+    const updateCurrentAddr = (newPrivateKey, newAddress, password) => {
+        try {
+            const privateKeyHex = typeof newPrivateKey === 'string' ? newPrivateKey : toBeHex(newPrivateKey, 32);
+            
+            // Update the wallet context state
+            setWalletState(prev => ({
+                ...prev,
+                currentAddr: {
+                    address: newAddress,
+                    privKey: privateKeyHex
+                }
+            }));
+            
+            // Encrypt and store the new private key
+            if (password) {
+                const encryptedCurrentKey = encryptPrivateKey(privateKeyHex, password);
+                localStorage.setItem("encryptedCurrentPrivKey", JSON.stringify(encryptedCurrentKey));
+                localStorage.setItem("stealthAddress", newAddress);
+                console.log("Updated and encrypted current address:", newAddress);
+            }
+        } catch (err) {
+            console.error("Failed to encrypt current address:", err);
+        }
+    };
+
     const value = {
         wallet: walletState,
         initializeWallet,
         generateReceiverStealthAddress,
-        sendToStealthAddress
+        sendToStealthAddress,
+        updateCurrentAddr
     };
 
     return (

@@ -11,7 +11,7 @@ function WalletApp() {
   const [rpcUrl, setRpcUrl] = useState(localStorage.getItem('rpcUrl'));
   const [password, setPassword] = useState("");
   const [walletAction, setWalletAction] = useState(null);
-  const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddress } = useWallet();
+  const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddress, updateCurrentAddr } = useWallet();
 
   // Helper function to hash password
   const hashPassword = (password) => {
@@ -34,11 +34,16 @@ function WalletApp() {
   }, []);
 
   useEffect(() => {
-    if(!rpcUrl) return;
-    const watcherService = new WatcherService(rpcUrl);
+    if(!rpcUrl || !wallet.masterPrivateSpendKey) return;
+    
+    const updateWithPassword = (newPrivateKey, newAddress) => {
+      updateCurrentAddr(newPrivateKey, newAddress, password);
+    };
+    
+    const watcherService = new WatcherService(rpcUrl, updateWithPassword);
     const watcherInterval = setInterval(() => watcherService.fetchEvents(), 12_000);
     return () => {clearInterval(watcherInterval)};
-  }, []);
+  }, [rpcUrl, wallet.masterPrivateSpendKey, updateCurrentAddr, password]);
 
   const generateNewWallet = async () => {
     const wallet = await initializeWallet();

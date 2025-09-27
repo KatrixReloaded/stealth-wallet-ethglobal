@@ -2,12 +2,15 @@
 import { ethers } from "ethers";
 import { announcerAbi} from "../utils/abi.js";
 import { generateStealthPrivateKey } from "../wallet-logic/wallet.js";
+import { receiveFromStealthWallet } from "../wallet-logic/transaction.js";
+import { secp256k1 } from "ethereum-cryptography/secp256k1";
 
 export class WatcherService {
-    constructor(rpcUrl) {
+    constructor(rpcUrl, updateCurrentAddrFn = null) {
         const announcerAddress = "0x55649E01B5Df198D18D95b5cc5051630cfD45564";
         this.provider = new ethers.JsonRpcProvider(rpcUrl);
         this.contract = new ethers.Contract(announcerAddress, announcerAbi, this.provider);
+        this.updateCurrentAddrFn = updateCurrentAddrFn;
 
         this.lastScannedBlock =
         parseInt(localStorage.getItem("lastScannedBlock")) || 0;
@@ -45,17 +48,22 @@ export class WatcherService {
 
         const stealthPrivKeyLatest = async() => {
             for(let i = 0; i < logs.length; i++) {
-            const stealthPrivKeyTemp = generateStealthPrivateKey(logs[i].ephemeralPubKey);
-            const tempWallet = new ethers.Wallet(stealthPrivKeyTemp, this.provider);
+                const R = secp256k1.ProjectivePoint.fromHex(logs[i].ephemeralPubKey);
+                const stealthPrivKeyTemp = generateStealthPrivateKey(R);
+                const tempWallet = new ethers.Wallet(stealthPrivKeyTemp, this.provider);
 
-            if(await tempWallet.provider.getBalance(tempWallet.address) > 0) {
-                latestPrivKey = stealthPrivKeyTemp;
-                // need to transfer funds too
-            }
+                if(await tempWallet.provider.getBalance(tempWallet.address) > 0) {
+                    latestPrivKey = stealthPrivKeyTemp;
+                    await receiveFromStealthWallet(R);
+                }
             }
         }
 
-        localStorage.setItem("currentPrivKey", latestPrivKey);
+        // @note need to see how to encrypt the new value with password and store it
+
+        if (this.updateCurrentAddrFn) {
+            this.updateCurrentAddrFn(latestPrivKey, new ethers.Wallet(latestPrivKey).address);
+        }
 
         if (logs.length) {
             console.log("New logs:", logs);
