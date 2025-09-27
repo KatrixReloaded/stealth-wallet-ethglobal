@@ -3,6 +3,7 @@ import { generateNewWallet, generateReceiverStealthAddress } from './wallet-logi
 import { sendToStealthAddress } from './wallet-logic/transaction.js';
 import { encryptPrivateKey } from './utils/encryption.js';
 import { toBeHex } from 'ethers';
+import { hexToBytes } from 'ethereum-cryptography/utils.js';
 
 const WalletContext = createContext(null);
 
@@ -16,8 +17,9 @@ export const WalletProvider = ({ children }) => {
         }
     });
 
-    const initializeWallet = async (existingKey) => {
-        const wallet = (await generateNewWallet(existingKey)).currentWalletState;
+    const initializeWallet = async (existingKey, password = null) => {
+        const wallet = (await generateNewWallet(hexToBytes(existingKey), password)).currentWalletState;
+        console.log(wallet);
         setWalletState(prev => ({
         ...prev,
         ...wallet
@@ -50,11 +52,20 @@ export const WalletProvider = ({ children }) => {
         }
     };
 
+    const sendToStealthAddressContext = async (receiverMetaAddress, amount) => {
+        const wallet = (await sendToStealthAddress(receiverMetaAddress, amount)).currentWalletState;
+        setWalletState(prev => ({
+        ...prev,
+        ...wallet
+        }));
+        return wallet;
+    }
+
     const value = {
         wallet: walletState,
         initializeWallet,
         generateReceiverStealthAddress,
-        sendToStealthAddress,
+        sendToStealthAddressContext,
         updateCurrentAddr
     };
 

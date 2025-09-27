@@ -11,7 +11,7 @@ function WalletApp() {
   const [rpcUrl, setRpcUrl] = useState(localStorage.getItem('rpcUrl'));
   const [password, setPassword] = useState("");
   const [walletAction, setWalletAction] = useState(null);
-  const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddress, updateCurrentAddr } = useWallet();
+  const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddressContext, updateCurrentAddr } = useWallet();
 
   // Helper function to hash password
   const hashPassword = (password) => {
@@ -46,7 +46,7 @@ function WalletApp() {
   }, [rpcUrl, wallet.masterPrivateSpendKey, updateCurrentAddr, password]);
 
   const generateNewWallet = async () => {
-    const wallet = await initializeWallet();
+    const wallet = await initializeWallet(null, password);
     
     // Encrypt and store keys
     const encryptedMasterKey = encryptPrivateKey(wallet.masterPrivateSpendKey, password);
@@ -66,7 +66,7 @@ function WalletApp() {
   const importWallet = async () => {
     const key = prompt("Enter master private spend key:");
     if (key) {
-      const wallet = await initializeWallet(key);
+      const wallet = await initializeWallet(key, password);
       
       // Encrypt and store keys
       const encryptedMasterKey = encryptPrivateKey(wallet.masterPrivateSpendKey, password);
@@ -111,7 +111,9 @@ function WalletApp() {
       const decryptedMasterKey = decryptPrivateKey(encryptedMasterKey, password);
       
       // Initialize wallet with decrypted key
-      await initializeWallet(decryptedMasterKey);
+      const wallet = await initializeWallet(decryptedMasterKey, password);
+      console.log("Decrypted Priv Key", decryptedMasterKey);
+      console.log(wallet);
       setPage("wallet");
     } catch (error) {
       alert("Invalid password or corrupted wallet data");
@@ -121,9 +123,9 @@ function WalletApp() {
 
   const handleSend = async (receiverMetaAddress, amount) => {
     try {
-      const result = await sendToStealthAddress(
+      console.log("Amount: ", amount);
+      const result = await sendToStealthAddressContext(
         receiverMetaAddress,
-        wallet.masterPrivateSpendKey,
         amount
       );
       console.log("Transaction successful:", result.hash);
@@ -292,15 +294,27 @@ function WalletApp() {
                   type="text"
                   placeholder="Receiver's Stealth Meta-Address"
                   className="w-full px-4 py-3 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  id="receiverAddress"
                 />
                 <input
                   type="number"
                   placeholder="Amount in ETH"
                   className="w-full px-4 py-3 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  id="sendAmount"
+                  step="0.001"
+                  min="0"
                 />
                 <button
                   className="w-full px-4 py-3 bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors"
-                  onClick={() => handleSend("receiver_address", 0.1)}
+                  onClick={() => {
+                    const receiverAddress = document.getElementById('receiverAddress').value;
+                    const amount = document.getElementById('sendAmount').value;
+                    if (receiverAddress && amount) {
+                      handleSend(receiverAddress, amount);
+                    } else {
+                      alert("Please fill in both receiver address and amount");
+                    }
+                  }}
                 >
                   Send
                 </button>
