@@ -19,7 +19,7 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     const {stealthAddress: selfStealthAddress, R: RSelf} = await generateReceiverStealthAddress(currentWalletState.stealthMetaAddress); // transfer remaining funds to new address, UTXO-inspired
     console.log("Self meta-address: ", currentWalletState.stealthMetaAddress);
     console.log({ RSelf, selfStealthAddress});
-    const stealthPrivateKey = toBeHex(generateStealthPrivateKey(RSelf));
+    const stealthPrivateKey = generateStealthPrivateKey(RSelf);
 
     console.log(toHex(keccak256(secp256k1.ProjectivePoint.BASE.multiply(stealthPrivateKey).toRawBytes(false).slice(1)).slice(-20)));
 
@@ -27,9 +27,13 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     console.log("Amount: ", amount);
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
 
+    const currentNonce = await wallet.getNonce();
+    console.log("Current nonce:", currentNonce);
+
     const tx = await wallet.sendTransaction({
         to: receiverStealthAddress,
-        value: ethers.parseEther(amount)
+        value: ethers.parseEther(amount),
+        nonce: currentNonce
     });
 
     const announcerContract = new ethers.Contract(announcerAddress, announcerAbi, provider);
@@ -39,26 +43,33 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
         1, // schemeId (typically 1 for secp256k1)
         receiverStealthAddress,
         "0x" + toHex(R.toRawBytes(false)), // ephemeralPubKey as bytes
-        "0x"
+        "0x",
+        { nonce: currentNonce + 1 }
     );
-
-    const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
-
-    const txSelf = await wallet.sendTransaction({
-        to: selfStealthAddress,
-        value: selfTxValue
-    });
 
     console.log("Transaction hash:", tx.hash);
     console.log("Announcement hash:", announcementTx.hash);
-    console.log("Self transaction hash:", txSelf.hash);
     
     const receipt = await tx.wait();
     const announcementReceipt = await announcementTx.wait();
-    const receiptSelf = await txSelf.wait();
     
     console.log("Payment confirmed in block:", receipt.blockNumber);
     console.log("Announcement confirmed in block:", announcementReceipt.blockNumber);
+    
+    const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
+
+    let txSelf;
+    let receiptSelf;
+    if(selfTxValue > 0n) {
+        txSelf = await wallet.sendTransaction({
+            to: selfStealthAddress,
+            value: selfTxValue,
+            nonce: currentNonce + 2
+        });
+        receiptSelf = await txSelf.wait();
+    }
+
+    console.log("Self transaction hash:", txSelf.hash);
     console.log("Self transfer confirmed in block:", receiptSelf.blockNumber);
 
     currentWalletState.currentAddr = {
@@ -68,7 +79,8 @@ export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
 
     return {
         success: true,
-        currentWalletState: currentWalletState
+        wallet: currentWalletState,
+        hash: tx.hash
     }
 }
 
@@ -85,13 +97,18 @@ export const sendToNormalAddress = async(receiverAddress, amount) => {
 
     const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
 
-    const txSelf = await wallet.sendTransaction({
-        to: selfStealthAddress,
-        value: selfTxValue
-    });
+    let txSelf;
+    if(selfTxValue > 0n){
+        txSelf = await wallet.sendTransaction({
+            to: selfStealthAddress,
+            value: selfTxValue,
+        });
+        await tx.wait();
+        await txSelf.wait();
+    } else {
+        await tx.wait();
+    }
 
-    await tx.wait();
-    await txSelf.wait();
 
     currentWalletState.currentAddr = {
         address: selfStealthAddress,
@@ -100,31 +117,39 @@ export const sendToNormalAddress = async(receiverAddress, amount) => {
 
     return {
         success: true,
-        txHash: tx.hash
+        wallet: currentWalletState,
+        hash: tx.hash
     }
 }
 
-export const receiveFromNormalWallet = async() => {
-    const {stealthAddress: selfStealthAddress, R: RSelf} = generateReceiverStealthAddress(stealthMetaAddress);
+export const receiveFromNormalWallet = async(currentPrivateKey) => {
+    const stealthMetaAddress = localStorage.getItem("stealthMetaAddress");
+    
+    if (!stealthMetaAddress || !currentPrivateKey) {
+        console.error("Missing wallet data - stealthMetaAddress or currentPrivateKey");
+        return;
+    }
+    
+    const {stealthAddress: selfStealthAddress, R: RSelf} = await generateReceiverStealthAddress(stealthMetaAddress);
     const stealthPrivateKey = toBeHex(generateStealthPrivateKey(RSelf));
     
     const provider = getProvider();
-    const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
+    const wallet = new ethers.Wallet(currentPrivateKey, provider);
     const selfTxValue = await getSelfTxValue(wallet, selfStealthAddress);
 
-    const txSelf = await wallet.sendTransaction({
-        to: selfStealthAddress,
-        value: selfTxValue
-    });
-    
-    await txSelf.wait();
+    let txSelf;
+    if(selfTxValue > 0n){
+        txSelf = await wallet.sendTransaction({
+            to: selfStealthAddress,
+            value: selfTxValue,
+        });
+        await txSelf.wait();
+    }
 
-    currentWalletState.currentAddr = {
+    return {
         address: selfStealthAddress,
-        privKey: toBeHex(stealthPrivateKey, 32)
+        privateKey: stealthPrivateKey
     };
-
-    return selfStealthAddress;
 }
 
 export const receiveFromStealthWallet = async(R) => {
@@ -136,16 +161,23 @@ export const receiveFromStealthWallet = async(R) => {
     const wallet = new ethers.Wallet(currentWalletState.currentAddr.privKey, provider);
     const selfTxValue = await getSelfTxValue(wallet, stealthAddress);
 
-    const txSelf = await wallet.sendTransaction({
-        to: stealthAddress,
-        value: selfTxValue
-    });
-
-    await txSelf.wait(1, 15_000);
+    let txSelf;
+    if(selfTxValue > 0n) {
+        txSelf = await wallet.sendTransaction({
+            to: stealthAddress,
+            value: selfTxValue,
+        });
+        await txSelf.wait(1, 15_000);
+    }
 
     currentWalletState.currentAddr = {
         address: stealthAddress,
         privKey: stealthPrivateKey
+    }
+
+    return {
+        success: true,
+        wallet: currentWalletState
     }
 }
 
@@ -163,9 +195,8 @@ export const getSelfTxValue = async(wallet, receiverAddress) => {
 
     const transferValue = remainingBalance - gasCost;
 
-    // Ensure we don't send negative value
     if (transferValue <= 0n) {
-        throw new Error(`Insufficient funds: balance ${ethers.formatEther(remainingBalance)} ETH, gas cost ${ethers.formatEther(gasCost)} ETH`);
+        return 0n;
     }
 
     return transferValue;

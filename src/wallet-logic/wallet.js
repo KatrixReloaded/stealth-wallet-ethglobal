@@ -55,7 +55,7 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array(),
     currentWalletState.stealthMetaAddress = stealthMetaAddress;
     
     // @note only if new meta-address is generated
-    if(localStorage.getItem("stealthAddress") === "") {
+    if(!localStorage.getItem("stealthAddress")) {
         const {stealthAddress, R} = await generateReceiverStealthAddress(stealthMetaAddress);
         const privateKey = generateStealthPrivateKey(R);
         currentWalletState.currentAddr = {
@@ -64,6 +64,7 @@ export const generateNewWallet = async(masterPrivateSpendKey = new Uint8Array(),
         };
     } else {
         const encryptedCurrentKey = JSON.parse(localStorage.getItem("encryptedCurrentPrivKey"));
+        console.log(encryptedCurrentKey);
         currentWalletState.currentAddr.privKey = decryptPrivateKey(encryptedCurrentKey, password);
         currentWalletState.currentAddr.address = localStorage.getItem("stealthAddress");
     }
