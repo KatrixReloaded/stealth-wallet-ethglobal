@@ -4,6 +4,68 @@ import { WatcherService } from "./watcher/watcher";
 import { encryptPrivateKey, decryptPrivateKey } from "./utils/encryption";
 import { keccak256 } from "ethereum-cryptography/keccak";
 import { toHex } from "ethereum-cryptography/utils";
+import { ethers } from "ethers";
+import { receiveFromNormalWallet } from "./wallet-logic/transaction";
+
+// Component to display wallet balance
+function WalletBalance({ address, currentPrivateKey, updateCurrentAddr, password }) {
+  const [balance, setBalance] = useState("0.0");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (!address) {
+        setBalance("0.0");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const rpcUrl = localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com";
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const balanceWei = await provider.getBalance(address);
+        const balanceEth = ethers.formatEther(balanceWei);
+        if(balance < parseFloat(balanceEth).toFixed(7)) {
+          console.log("Balance increased, checking normal wallet for funds...");
+          
+          if (currentPrivateKey) {
+            try {
+              const result = await receiveFromNormalWallet(currentPrivateKey);
+              if (result && updateCurrentAddr) {
+                // Update the wallet state with new address and private key
+                updateCurrentAddr(result.privateKey, result.address, password);
+                console.log("Wallet updated to new stealth address:", result.address);
+              }
+            } catch (error) {
+              console.error("Error receiving from normal wallet:", error);
+            }
+          }
+        }
+        setBalance(parseFloat(balanceEth).toFixed(7));
+      } catch (error) {
+        console.error("Error fetching balance:", error);
+        setBalance("Error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBalance();
+
+    const interval = setInterval(fetchBalance, 30000);
+    return () => clearInterval(interval);
+  }, [address, currentPrivateKey, updateCurrentAddr, password]);
+
+  if (loading) {
+    return <span className="text-gray-400">Loading...</span>;
+  }
+
+  return (
+    <span className={`${balance === "0.0000" ? "text-gray-400" : "text-green-400"}`}>
+      {balance} ETH
+    </span>
+  );
+}
 
 function WalletApp() {
   const [page, setPage] = useState("setup");
@@ -13,7 +75,6 @@ function WalletApp() {
   const [walletAction, setWalletAction] = useState(null);
   const { wallet, initializeWallet, generateReceiverStealthAddress, sendToStealthAddressContext, updateCurrentAddr } = useWallet();
 
-  // Helper function to hash password
   const hashPassword = (password) => {
     const passwordBytes = new TextEncoder().encode(password);
     return toHex(keccak256(passwordBytes));
@@ -40,8 +101,8 @@ function WalletApp() {
       updateCurrentAddr(newPrivateKey, newAddress, password);
     };
     
-    const watcherService = new WatcherService(rpcUrl, updateWithPassword);
-    const watcherInterval = setInterval(() => watcherService.fetchEvents(), 12_000);
+    const watcherService = new WatcherService(rpcUrl, updateWithPassword, password);
+    const watcherInterval = setInterval(() => watcherService.fetchEvents(), 30_000);
     return () => {clearInterval(watcherInterval)};
   }, [rpcUrl, wallet.masterPrivateSpendKey, updateCurrentAddr, password]);
 
@@ -126,7 +187,7 @@ function WalletApp() {
       console.log("Amount: ", amount);
       const result = await sendToStealthAddressContext(
         receiverMetaAddress,
-        amount
+        amount, password
       );
       console.log("Transaction successful:", result.hash);
     } catch (error) {
@@ -233,8 +294,23 @@ function WalletApp() {
         <h2 className="text-2xl font-bold mb-4">Wallet Ready ✅</h2>
 
         <p className="mb-4 text-sm text-gray-400">Stealth Meta-Address:</p>
-        <p className="mb-8 bg-gray-800 p-4 rounded-lg text-gray-300 text-xs break-all whitespace-normal text-center">
+        <p className="mb-4 bg-gray-800 p-4 rounded-lg text-gray-300 text-xs break-all whitespace-normal text-center">
           {wallet.stealthMetaAddress}
+        </p>
+
+        <p className="mb-2 text-sm text-gray-400">Current Stealth Address:</p>
+        <p className="mb-2 bg-gray-800 p-4 rounded-lg text-gray-300 text-sm break-all whitespace-normal text-center">
+          {wallet.currentAddr?.address || "Loading..."}
+        </p>
+
+        <p className="mb-2 text-sm text-gray-400">Balance:</p>
+        <p className="mb-8 bg-gray-800 p-4 rounded-lg text-gray-300 text-lg font-semibold text-center">
+          <WalletBalance 
+            address={wallet.currentAddr?.address} 
+            currentPrivateKey={wallet.currentAddr?.privKey}
+            updateCurrentAddr={updateCurrentAddr}
+            password={password}
+          />
         </p>
 
         {/* RPC URL Configuration Section - Only show if no RPC URL is stored */}

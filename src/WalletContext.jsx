@@ -18,7 +18,12 @@ export const WalletProvider = ({ children }) => {
     });
 
     const initializeWallet = async (existingKey, password = null) => {
-        const wallet = (await generateNewWallet(hexToBytes(existingKey), password)).currentWalletState;
+        let wallet;
+        if(existingKey !== null) {
+            wallet = (await generateNewWallet(hexToBytes(existingKey), password)).currentWalletState;
+        } else {
+            wallet = (await generateNewWallet(new Uint8Array(), password)).currentWalletState;
+        }
         console.log(wallet);
         setWalletState(prev => ({
         ...prev,
@@ -31,7 +36,6 @@ export const WalletProvider = ({ children }) => {
         try {
             const privateKeyHex = typeof newPrivateKey === 'string' ? newPrivateKey : toBeHex(newPrivateKey, 32);
             
-            // Update the wallet context state
             setWalletState(prev => ({
                 ...prev,
                 currentAddr: {
@@ -40,7 +44,7 @@ export const WalletProvider = ({ children }) => {
                 }
             }));
             
-            // Encrypt and store the new private key
+            console.log("Updating current address")
             if (password) {
                 const encryptedCurrentKey = encryptPrivateKey(privateKeyHex, password);
                 localStorage.setItem("encryptedCurrentPrivKey", JSON.stringify(encryptedCurrentKey));
@@ -52,13 +56,13 @@ export const WalletProvider = ({ children }) => {
         }
     };
 
-    const sendToStealthAddressContext = async (receiverMetaAddress, amount) => {
-        const wallet = (await sendToStealthAddress(receiverMetaAddress, amount)).currentWalletState;
-        setWalletState(prev => ({
-        ...prev,
-        ...wallet
-        }));
-        return wallet;
+    const sendToStealthAddressContext = async (receiverMetaAddress, amount, password) => {
+        const { wallet, hash } = (await sendToStealthAddress(receiverMetaAddress, amount));
+
+        console.log("Wallet context: ", wallet);
+        updateCurrentAddr(wallet.currentAddr.privKey, wallet.currentAddr.address, password);
+
+        return {wallet: wallet, hash: hash};
     }
 
     const value = {
