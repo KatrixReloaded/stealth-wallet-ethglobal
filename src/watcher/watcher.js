@@ -7,7 +7,7 @@ import { secp256k1 } from "ethereum-cryptography/secp256k1";
 
 export class WatcherService {
     constructor(rpcUrl, updateCurrentAddrFn = null, password = null) {
-        const announcerAddress = "0x55649E01B5Df198D18D95b5cc5051630cfD45564";
+        const announcerAddress = "0xe971f521183348c69684ba81C94Ca73049c671E7";
         this.provider = new ethers.JsonRpcProvider(rpcUrl);
         this.contract = new ethers.Contract(announcerAddress, announcerAbi, this.provider);
         this.updateCurrentAddrFn = updateCurrentAddrFn;

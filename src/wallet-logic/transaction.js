@@ -9,7 +9,7 @@ const getProvider = () => {
     return new ethers.JsonRpcProvider(localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com");
 };
 
-const announcerAddress = "0x55649E01B5Df198D18D95b5cc5051630cfD45564";
+const announcerAddress = "0xe971f521183348c69684ba81C94Ca73049c671E7";
 
 export const sendToStealthAddress = async(receiverMetaAddress, amount) => {
     console.log(currentWalletState);

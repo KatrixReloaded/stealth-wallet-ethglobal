@@ -21,7 +21,7 @@ function WalletBalance({ address, currentPrivateKey, updateCurrentAddr, password
       }
 
       try {
-        const rpcUrl = localStorage.getItem('rpcUrl') || "https://ethereum-sepolia-rpc.publicnode.com";
+        const rpcUrl = localStorage.getItem('rpcUrl') || "https://evm-testnet.chainweb.com/chainweb/0.0/evm-testnet/chain/20/evm/rpc";
         const provider = new ethers.JsonRpcProvider(rpcUrl);
         const balanceWei = await provider.getBalance(address);
         const balanceEth = ethers.formatEther(balanceWei);
