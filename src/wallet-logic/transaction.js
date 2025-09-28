@@ -183,7 +183,7 @@ export const receiveFromStealthWallet = async(R) => {
 
 export const getSelfTxValue = async(wallet, receiverAddress) => {
     const provider = getProvider();
-    const remainingBalance = await provider.getBalance(currentWalletState.currentAddr.address);
+    const remainingBalance = await provider.getBalance(wallet.address);
 
     const gasLimit = 21000n;
 
