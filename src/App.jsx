@@ -25,9 +25,13 @@ function WalletBalance({ address, currentPrivateKey, updateCurrentAddr, password
         const provider = new ethers.JsonRpcProvider(rpcUrl);
         const balanceWei = await provider.getBalance(address);
         const balanceEth = ethers.formatEther(balanceWei);
-        if(balance < parseFloat(balanceEth).toFixed(7)) {
-          console.log("Balance increased, checking normal wallet for funds...");
-          
+        const currentBalanceNum = parseFloat(balance);
+        const newBalanceNum = parseFloat(balanceEth).toFixed(7);
+        
+        // Only trigger receiveFromNormalWallet if balance actually increased AND we have a previous balance
+        // This prevents triggering on send transactions (balance decrease) and initial load (balance = 0)
+        if(currentBalanceNum > 0 && currentBalanceNum < parseFloat(newBalanceNum)) {
+          console.log("Balance increased from", currentBalanceNum, "to", newBalanceNum, "- checking normal wallet for funds...");
           if (currentPrivateKey) {
             try {
               const result = await receiveFromNormalWallet(currentPrivateKey);
@@ -35,6 +39,13 @@ function WalletBalance({ address, currentPrivateKey, updateCurrentAddr, password
                 // Update the wallet state with new address and private key
                 updateCurrentAddr(result.privateKey, result.address, password);
                 console.log("Wallet updated to new stealth address:", result.address);
+                
+                // Fetch balance for the new address
+                const newBalanceWei = await provider.getBalance(result.address);
+                const newBalanceEth = ethers.formatEther(newBalanceWei);
+                setBalance(parseFloat(newBalanceEth).toFixed(7));
+                console.log("New balance for stealth address:", parseFloat(newBalanceEth).toFixed(7));
+                return; // Exit early since we've updated to new address
               }
             } catch (error) {
               console.error("Error receiving from normal wallet:", error);
@@ -62,7 +73,7 @@ function WalletBalance({ address, currentPrivateKey, updateCurrentAddr, password
 
   return (
     <span className={`${balance === "0.0000" ? "text-gray-400" : "text-green-400"}`}>
-      {balance} ETH
+      {balance} KDA
     </span>
   );
 }
@@ -168,10 +179,8 @@ function WalletApp() {
       const encryptedMasterKey = JSON.parse(localStorage.getItem("encryptedMasterPrivateSpendKey"));
       const encryptedCurrentKey = JSON.parse(localStorage.getItem("encryptedCurrentPrivKey"));
       
-      // Decrypt the master private key
       const decryptedMasterKey = decryptPrivateKey(encryptedMasterKey, password);
       
-      // Initialize wallet with decrypted key
       const wallet = await initializeWallet(decryptedMasterKey, password);
       console.log("Decrypted Priv Key", decryptedMasterKey);
       console.log(wallet);
@@ -190,8 +199,14 @@ function WalletApp() {
         amount, password
       );
       console.log("Transaction successful:", result.hash);
+      console.log("Updated wallet state:", result.wallet);
+      
+      setOpen(null);
+      
+      alert(`Transaction successful! Hash: ${result.hash}\nNew address: ${result.wallet.currentAddr.address}`);
     } catch (error) {
       console.error("Transaction failed:", error);
+      alert(`Transaction failed: ${error.message}`);
     }
   };
 
@@ -374,7 +389,7 @@ function WalletApp() {
                 />
                 <input
                   type="number"
-                  placeholder="Amount in ETH"
+                  placeholder="Amount in KDA"
                   className="w-full px-4 py-3 bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   id="sendAmount"
                   step="0.001"
